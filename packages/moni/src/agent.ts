@@ -9,13 +9,14 @@ import {
 	ModelRegistry,
 	type ResourceLoader,
 	SessionManager,
+	SettingsManager,
 	type Skill,
 } from "@mariozechner/pi-coding-agent";
 import { existsSync } from "fs";
 import { mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
-import { MoniSettingsManager, syncLogToSessionManager } from "./context.js";
+import { syncLogToSessionManager } from "./context.js";
 import { buildSystemPrompt } from "./identity.js";
 import * as log from "./log.js";
 import type { QuantMoniManager } from "./quantmoni.js";
@@ -84,7 +85,7 @@ export function createAgentRunner(opts: {
 	// Create session manager
 	const contextFile = join(dataDir, "context.jsonl");
 	const sessionManager = SessionManager.open(contextFile, dataDir);
-	const settingsManager = new MoniSettingsManager(dataDir);
+	const settingsManager = SettingsManager.inMemory();
 
 	// Create auth storage and model registry
 	const authDir = join(homedir(), ".pi", "moni");
@@ -145,7 +146,7 @@ export function createAgentRunner(opts: {
 	const session = new AgentSession({
 		agent,
 		sessionManager,
-		settingsManager: settingsManager as any,
+		settingsManager,
 		cwd: process.cwd(),
 		modelRegistry,
 		resourceLoader,

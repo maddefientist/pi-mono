@@ -165,8 +165,11 @@ export class TelegramChannel {
 		});
 	}
 
+	private pollingActive = false;
+
 	private async startPolling(): Promise<void> {
-		if (!this.bot) return;
+		if (!this.bot || this.pollingActive) return;
+		this.pollingActive = true;
 
 		try {
 			await this.bot.api.deleteWebhook({ drop_pending_updates: true });
@@ -177,6 +180,7 @@ export class TelegramChannel {
 		return new Promise<void>((resolve) => {
 			let resolved = false;
 			this.bot!.start({
+				drop_pending_updates: true,
 				onStart: (botInfo) => {
 					log.logInfo(`Telegram bot connected: @${botInfo.username} (ID: ${botInfo.id})`);
 					if (!resolved) {
@@ -185,29 +189,34 @@ export class TelegramChannel {
 					}
 				},
 			}).catch((err) => {
+				this.pollingActive = false;
 				const is409 = err?.error_code === 409 || err?.message?.includes("409");
 				if (is409) {
-					log.logWarning("Telegram 409 conflict (previous instance still polling), retrying in 5s...");
+					log.logWarning("Telegram 409 conflict, waiting 35s for old session to expire...");
 				} else {
-					log.logWarning("Telegram bot polling crashed, retrying in 5s...", err?.message);
+					log.logWarning("Telegram bot polling crashed, retrying in 10s...", err?.message);
 				}
 				if (!resolved) {
 					resolved = true;
 					resolve();
 				}
-				setTimeout(() => this.restartPolling(), 5000);
+				setTimeout(() => this.restartPolling(), is409 ? 35000 : 10000);
 			});
 		});
 	}
 
 	private async restartPolling(): Promise<void> {
 		if (!this.bot) return;
+
+		// Stop current bot
+		this.pollingActive = false;
 		try {
 			this.bot.stop();
 		} catch {
 			/* already stopped */
 		}
 
+		// Create fresh bot instance
 		this.bot = new Bot(this.botToken);
 		this.setupHandlers();
 
@@ -217,15 +226,24 @@ export class TelegramChannel {
 			/* ignore */
 		}
 
+		this.pollingActive = true;
 		this.bot
 			.start({
+				drop_pending_updates: true,
 				onStart: (botInfo) => {
 					log.logInfo(`Telegram bot reconnected: @${botInfo.username}`);
 				},
 			})
 			.catch((err) => {
-				log.logWarning("Telegram bot polling crashed again, retrying in 30s...", err?.message);
-				setTimeout(() => this.restartPolling(), 30000);
+				this.pollingActive = false;
+				const is409 = err?.error_code === 409 || err?.message?.includes("409");
+				if (is409) {
+					log.logWarning("Telegram 409 on reconnect, waiting 35s...");
+					setTimeout(() => this.restartPolling(), 35000);
+				} else {
+					log.logWarning("Telegram bot polling crashed, retrying in 10s...", err?.message);
+					setTimeout(() => this.restartPolling(), 10000);
+				}
 			});
 	}
 

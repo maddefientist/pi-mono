@@ -109,8 +109,65 @@ export class TelegramChannel {
 			});
 		};
 
-		this.bot.on("message:photo", (ctx) => handleNonText(ctx, "[Photo]"));
-		this.bot.on("message:video", (ctx) => handleNonText(ctx, "[Video]"));
+		this.bot.on("message:photo", async (ctx) => {
+			if (!this.isAllowedChat(ctx.chat.id)) return;
+			const caption = ctx.message.caption ? ` ${ctx.message.caption}` : "";
+			let contentMsg = `[Photo]${caption}`;
+			try {
+				// Get highest resolution photo (last in array)
+				const photos = ctx.message.photo;
+				const best = photos[photos.length - 1];
+				const file = await ctx.api.getFile(best.file_id);
+				const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+				const response = await fetch(fileUrl);
+				if (response.ok) {
+					const buffer = Buffer.from(await response.arrayBuffer());
+					const destDir = path.join(this.dataDir, "attachments");
+					fs.mkdirSync(destDir, { recursive: true });
+					const ext = file.file_path?.split(".").pop() || "jpg";
+					const fileName = `photo-${Date.now()}.${ext}`;
+					const destPath = path.join(destDir, fileName);
+					fs.writeFileSync(destPath, buffer);
+					contentMsg = `[Photo: ${destPath}]${caption}`;
+					log.logInfo(`Downloaded photo: ${destPath}`);
+				}
+			} catch (err) {
+				log.logWarning("Failed to download photo", err instanceof Error ? err.message : String(err));
+			}
+			const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || "Unknown";
+			const sender = ctx.from?.id?.toString() || "";
+			const timestamp = new Date(ctx.message.date * 1000).toISOString();
+			this.onMessage({ id: ctx.message.message_id.toString(), sender, senderName, content: contentMsg, timestamp });
+		});
+
+		this.bot.on("message:video", async (ctx) => {
+			if (!this.isAllowedChat(ctx.chat.id)) return;
+			const caption = ctx.message.caption ? ` ${ctx.message.caption}` : "";
+			let contentMsg = `[Video]${caption}`;
+			try {
+				const file = await ctx.getFile();
+				const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+				const response = await fetch(fileUrl);
+				if (response.ok) {
+					const buffer = Buffer.from(await response.arrayBuffer());
+					const destDir = path.join(this.dataDir, "attachments");
+					fs.mkdirSync(destDir, { recursive: true });
+					const ext = file.file_path?.split(".").pop() || "mp4";
+					const fileName = `video-${Date.now()}.${ext}`;
+					const destPath = path.join(destDir, fileName);
+					fs.writeFileSync(destPath, buffer);
+					contentMsg = `[Video: ${destPath}]${caption}`;
+					log.logInfo(`Downloaded video: ${destPath}`);
+				}
+			} catch (err) {
+				log.logWarning("Failed to download video", err instanceof Error ? err.message : String(err));
+			}
+			const senderName = ctx.from?.first_name || ctx.from?.username || ctx.from?.id?.toString() || "Unknown";
+			const sender = ctx.from?.id?.toString() || "";
+			const timestamp = new Date(ctx.message.date * 1000).toISOString();
+			this.onMessage({ id: ctx.message.message_id.toString(), sender, senderName, content: contentMsg, timestamp });
+		});
+
 		this.bot.on("message:audio", (ctx) => handleNonText(ctx, "[Audio]"));
 		this.bot.on("message:sticker", (ctx) => {
 			const emoji = (ctx.message as any).sticker?.emoji || "";
